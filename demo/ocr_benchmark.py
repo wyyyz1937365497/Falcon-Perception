@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
 from falcon_perception import OCR_MODEL_ID, cuda_timed, load_and_prepare_model, setup_torch_config
 from falcon_perception.data import ImageProcessor, stream_samples_from_hf_dataset
+from falcon_perception.flex_attention_config import resolve_flex_kernel_options
 from falcon_perception.paged_inference import engine_config_for_gpu
 from falcon_perception.paged_ocr_inference import OCRInferenceEngine
 
@@ -87,10 +88,12 @@ def main(
     cfg.pop("max_hr_cache_entries", None)
     cfg.pop("max_image_size", None)
     print(f"Auto-config: {cfg}")
+    kernel_options = resolve_flex_kernel_options(device=model.device)
     engine = OCRInferenceEngine(
         model, tokenizer, image_processor,
         max_seq_length=4096,
         capture_cudagraph=cudagraph,
+        kernel_options=kernel_options,
         **cfg,
     )
 

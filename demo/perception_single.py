@@ -27,6 +27,7 @@ from falcon_perception import (
     setup_torch_config,
 )
 from falcon_perception.data import load_image, stream_samples_from_hf_dataset
+from falcon_perception.flex_attention_config import resolve_flex_kernel_options
 
 setup_torch_config()
 
@@ -54,7 +55,6 @@ def main(
     Use --flex-attn-safe on GPUs with limited per-SM shared memory
     (A40, RTX 3090/4090, L40) to avoid FlexAttention Triton OOM. See README.
     """
-    kernel_options = {"BLOCK_M": 64, "BLOCK_N": 64, "num_stages": 1} if flex_attn_safe else {}
     model, tokenizer, model_args = load_and_prepare_model(
         hf_model_id=hf_model_id or PERCEPTION_MODEL_ID,
         hf_revision=hf_revision,
@@ -64,6 +64,11 @@ def main(
         compile=compile,
     )
     resolved_device = model.device
+    kernel_options = resolve_flex_kernel_options(
+        device=resolved_device,
+        user_kernel_options=None,
+        force_safe=True if flex_attn_safe else None,
+    )
 
     if task == "segmentation" and not model_args.do_segmentation:
         print("Model does not support segmentation (do_segmentation=False), falling back to detection.")
@@ -117,7 +122,7 @@ def main(
             prefill_length_limit=8192,
             enable_hr_cache=False,
             capture_cudagraph=cudagraph,
-            kernel_options=kernel_options or None,
+            kernel_options=kernel_options,
         )
 
         prompt = build_prompt_for_task(query, task)
@@ -177,7 +182,7 @@ def main(
         from falcon_perception.visualization_utils import render_batch_inference_outputs
 
         prompt = build_prompt_for_task(query, task)
-        engine = BatchInferenceEngine(model, tokenizer, kernel_options=kernel_options or None)
+        engine = BatchInferenceEngine(model, tokenizer, kernel_options=kernel_options)
         batch_inputs = process_batch_and_generate(
             tokenizer,
             [(pil_image, prompt)],

@@ -109,6 +109,11 @@ python demo/perception_single.py --image photo.jpg --query "cat"
 python demo/perception_single.py --image photo.jpg --query "cat" --task detection
 ```
 
+On GPUs with low per-SM shared memory limits (for example 64KB limit on many RTX cards),
+the Torch backend now auto-enables safer FlexAttention Triton kernel options to avoid
+`No valid triton configs` failures. You can still force the same profile manually with
+`--flex-attn-safe` in single-image demos.
+
 **MLX (Apple Silicon)**
 ```bash
 python demo/perception_single_mlx.py --image photo.jpg --query "cat"

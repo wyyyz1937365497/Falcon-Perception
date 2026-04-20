@@ -1,0 +1,49 @@
+{
+  "version": "2.0",
+  "camera_name": "1702",
+  "created_at": "2026-03-16T19:41:31.588054",
+  "dino_params": {
+    "caption": "tree",
+    "box_threshold": 0.25,
+    "text_threshold": 0.9,
+    "device": "cuda"
+  },
+  "rtsp_settings": {
+    "url": "rtsp://127.0.0.1:19345/video",
+    "sample_interval": 10
+  },
+  "detection_regions": [
+    {
+      "region_id": "left",
+      "region_name": "left",
+      "crop_params": {
+        "width": 830,
+        "height": 1060,
+        "relative_x":-450,
+        "relative_y": -160      },
+      "detection_params": {
+        "caption": "bike",
+        "box_threshold": 0.12,
+        "text_threshold": 1,
+        "max_box_area": 6000,
+        "min_box_area": 150
+      }
+    },
+    {
+      "region_id": "right",
+      "region_name": "right",
+      "crop_params": {
+        "width": 340,
+        "height": 1050,
+        "relative_x": 980,
+        "relative_y": 160      },
+      "detection_params": {
+        "caption": "bike",
+        "box_threshold": 0.12,
+        "text_threshold": 1,
+        "max_box_area": 6000,
+        "min_box_area": 150
+      }
+    }
+  ]
+}

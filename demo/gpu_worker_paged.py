@@ -90,6 +90,7 @@ def run(gpu_id, in_queue, out_queue, config):
         setup_torch_config,
     )
     from falcon_perception.data import ImageProcessor
+    from falcon_perception.flex_attention_config import resolve_flex_kernel_options
     from falcon_perception.paged_inference import (
         PagedInferenceEngine,
         SamplingParams,
@@ -116,6 +117,7 @@ def run(gpu_id, in_queue, out_queue, config):
         device=device,
         dtype=model.dtype,
     )
+    kernel_options = resolve_flex_kernel_options(device=model.device)
     page_size = ecfg.get("page_size", 128)
     max_seq_length = page_size * 32  # 4096 — ample for detection
 
@@ -131,6 +133,7 @@ def run(gpu_id, in_queue, out_queue, config):
         seed=42,
         enable_hr_cache=True,
         capture_cudagraph=True,
+        kernel_options=kernel_options,
     )
 
     stop_ids = [tokenizer.eos_token_id, tokenizer.end_of_query_token_id]

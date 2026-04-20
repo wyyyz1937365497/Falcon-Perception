@@ -19,6 +19,7 @@ import tyro
 
 from falcon_perception import OCR_MODEL_ID, cuda_timed, load_and_prepare_model, setup_torch_config
 from falcon_perception.data import load_image, stream_samples_from_hf_dataset
+from falcon_perception.flex_attention_config import resolve_flex_kernel_options
 
 setup_torch_config()
 
@@ -44,7 +45,6 @@ def main(
     Use --flex-attn-safe on GPUs with limited per-SM shared memory
     (A40, RTX 3090/4090, L40) to avoid FlexAttention Triton OOM. See README.
     """
-    kernel_options = {"BLOCK_M": 64, "BLOCK_N": 64, "num_stages": 1} if flex_attn_safe else None
     model, tokenizer, model_args = load_and_prepare_model(
         hf_model_id=hf_model_id or OCR_MODEL_ID,
         hf_revision=hf_revision,
@@ -52,6 +52,11 @@ def main(
         device=device,
         dtype=dtype,
         compile=compile,
+    )
+    kernel_options = resolve_flex_kernel_options(
+        device=model.device,
+        user_kernel_options=None,
+        force_safe=True if flex_attn_safe else None,
     )
 
     if image is not None:

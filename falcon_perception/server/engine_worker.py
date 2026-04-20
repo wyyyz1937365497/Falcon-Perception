@@ -175,9 +175,22 @@ def _worker_process_main(
 # ── Engine construction (inside worker subprocess) ─────────────────────
 
 
+def _resolve_engine_config(config, device, dtype):
+    from falcon_perception.paged_inference import engine_config_for_gpu
+    auto = engine_config_for_gpu(max_image_size=config.max_image_size, device=device, dtype=dtype)
+    return {
+        "n_pages":              config.n_pages if config.n_pages > 0 else auto["n_pages"],
+        "page_size":            config.page_size,
+        "max_batch_size":       config.max_batch_size if config.max_batch_size > 0 else auto["max_batch_size"],
+        "prefill_length_limit": config.prefill_length_limit if config.prefill_length_limit > 0 else auto["prefill_length_limit"],
+        "max_hr_cache_entries": config.max_hr_cache_entries if config.max_hr_cache_entries > 0 else auto.get("max_hr_cache_entries", 100),
+    }
+
+
 @torch.inference_mode()
 def _build_engine(gpu_id, config, log):
     from falcon_perception.data import ImageProcessor
+    from falcon_perception.flex_attention_config import resolve_flex_kernel_options
     from falcon_perception import load_from_hf_export
 
     log.info("Loading model from %s ...", config.hf_model_id)
@@ -203,6 +216,9 @@ def _build_engine(gpu_id, config, log):
         model.compile(mode="default")
 
     image_processor = ImageProcessor(patch_size=16, merge_size=1)
+    kernel_options = resolve_flex_kernel_options(device=device)
+
+    ecfg = _resolve_engine_config(config, device, dtype)
 
     if is_ocr:
         from falcon_perception.paged_ocr_inference import OCRInferenceEngine
@@ -211,11 +227,12 @@ def _build_engine(gpu_id, config, log):
             model,
             tokenizer,
             image_processor,
-            max_batch_size=config.max_batch_size,
+            max_batch_size=ecfg["max_batch_size"],
             max_seq_length=config.max_seq_length,
-            n_pages=config.n_pages,
-            page_size=config.page_size,
-            prefill_length_limit=config.prefill_length_limit,
+            n_pages=ecfg["n_pages"],
+            page_size=ecfg["page_size"],
+            prefill_length_limit=ecfg["prefill_length_limit"],
+            kernel_options=kernel_options,
             capture_cudagraph=config.cudagraph,
             max_decode_steps_between_prefills=config.max_decode_steps_between_prefills,
         )
@@ -225,13 +242,15 @@ def _build_engine(gpu_id, config, log):
             model,
             tokenizer,
             image_processor,
-            max_batch_size=config.max_batch_size,
+            max_batch_size=ecfg["max_batch_size"],
             max_seq_length=config.max_seq_length,
-            n_pages=config.n_pages,
-            page_size=config.page_size,
-            prefill_length_limit=config.prefill_length_limit,
+            n_pages=ecfg["n_pages"],
+            page_size=ecfg["page_size"],
+            prefill_length_limit=ecfg["prefill_length_limit"],
             capture_cudagraph=config.cudagraph,
             max_decode_steps_between_prefills=config.max_decode_steps_between_prefills,
+            max_hr_cache_entries=ecfg["max_hr_cache_entries"],
+            kernel_options=kernel_options,
         )
 
     engine.temperature = config.temperature

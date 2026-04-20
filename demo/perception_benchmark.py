@@ -44,6 +44,7 @@ from falcon_perception.paged_inference import (
     engine_config_for_gpu,
 )
 from falcon_perception.visualization_utils import decode_coco_rle, save_comparison_vis
+from falcon_perception.flex_attention_config import resolve_flex_kernel_options
 
 setup_torch_config()
 
@@ -137,11 +138,13 @@ def main(
 
     cfg = engine_config_for_gpu(max_image_size=max_dimension, dtype=model.dtype)
     print(f"Auto-config: {cfg}")
+    kernel_options = resolve_flex_kernel_options(device=model.device)
     engine = PagedInferenceEngine(
         model, tokenizer, image_processor,
         max_seq_length=8192,
         capture_cudagraph=cudagraph,
         max_decode_steps_between_prefills=max_decode_steps_between_prefills,
+        kernel_options=kernel_options,
         **cfg,
     )
 

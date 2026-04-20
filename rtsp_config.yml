@@ -1,0 +1,29 @@
+# RTSP 视频流检测服务配置文件
+
+# RTSP 配置
+rtsp_url: "rtsp://127.0.0.1:19345/video"
+
+# 裁剪参数
+crop_width: 550
+crop_height: 870
+crop_x: 910
+crop_y: 530
+enable_crop: true
+
+# 检测参数
+detection_caption: "bike"
+box_threshold: 0.12
+text_threshold: 1.0
+
+# 框大小筛选（像素²）
+max_box_area: 6000    # 超过此面积的框将被过滤
+min_box_area: 150     # 小于此面积的框将被过滤
+
+# 采样间隔（秒）
+sample_interval: 60    # 每60秒提取一帧
+
+# 输出目录
+output_dir: "output/rtsp_detection"
+
+# 设备 (cuda/cpu)
+device: "cuda"

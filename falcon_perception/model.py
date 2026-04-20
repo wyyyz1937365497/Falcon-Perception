@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Technology Innovation Institute (TII), UAE.
 
 import math
+import logging
 from typing import NamedTuple
 
 import einops as E
@@ -22,12 +23,21 @@ from falcon_perception.attention import (
     compiled_flex_attn_prefill,
     offset_mask_mod,
 )
+from falcon_perception.flex_attention_config import (
+    candidate_retry_kernel_options,
+    is_triton_resource_error,
+    mark_runtime_fallback,
+    resolve_flex_kernel_options,
+)
 from falcon_perception.kv_cache import KVCacheBase
 from falcon_perception.rope import (
     apply_3d_rotary_emb,
     apply_golden_freqs_cis_to_visual_pos,
     precompute_freqs_cis,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # Heads
@@ -154,12 +164,48 @@ class Attention(nn.Module):
         # Decode (S_q == 1): static-shape compiled, CUDA-graph-safe.
         # Prefill (S_q > 1): dynamic-shape compiled, no recompilations.
         flex_fn = compiled_flex_attn_decode if xq.shape[2] == 1 else compiled_flex_attn_prefill
-        output, aux_output = flex_fn(
-            xq, xk, xv,
-            block_mask=attention_masks,
-            return_aux=AuxRequest(lse=True),
-            kernel_options=flex_attn_kernel_options,
+        kernel_options = resolve_flex_kernel_options(
+            device=xq.device,
+            user_kernel_options=flex_attn_kernel_options,
+            force_safe=None,
         )
+
+        try:
+            output, aux_output = flex_fn(
+                xq, xk, xv,
+                block_mask=attention_masks,
+                return_aux=AuxRequest(lse=True),
+                kernel_options=kernel_options,
+            )
+        except Exception as exc:
+            if not is_triton_resource_error(exc):
+                raise
+
+            retry_error = exc
+            for retry_kernel_options in candidate_retry_kernel_options(kernel_options):
+                logger.warning(
+                    "FlexAttention kernel retry in layer %d with safer kernel options.",
+                    self.layer_id,
+                )
+                try:
+                    output, aux_output = flex_fn(
+                        xq, xk, xv,
+                        block_mask=attention_masks,
+                        return_aux=AuxRequest(lse=True),
+                        kernel_options=retry_kernel_options,
+                    )
+                    mark_runtime_fallback(
+                        device=xq.device,
+                        applied_kernel_options=retry_kernel_options,
+                    )
+                    break
+                except Exception as retry_exc:
+                    if not is_triton_resource_error(retry_exc):
+                        raise
+                    retry_error = retry_exc
+            else:
+                raise retry_error
+
         output = self._post_attention(output, aux_output.lse)
         return output
 

@@ -73,6 +73,10 @@ On startup the server will:
 
 Steps 1–3 take 1–3 minutes depending on GPU and whether compile caches exist.
 
+On GPUs with limited shared-memory budget per SM, worker startup auto-applies
+safer FlexAttention Triton kernel options to reduce the chance of
+`No valid triton configs` errors during prefill.
+
 ### Configuration Reference
 
 All fields live in `ServerConfig` (see `config.py`). Pass them as `--config.<field>`.
