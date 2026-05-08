@@ -9,7 +9,7 @@
     "device": "cuda"
   },
   "rtsp_settings": {
-    "url": "rtsp://127.0.0.1:19345/video",
+    "url": "rtsp://127.0.0.1:8554/stream",
     "sample_interval": 10
   },
   "detection_regions": [

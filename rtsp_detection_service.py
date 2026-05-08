@@ -71,7 +71,7 @@ CONFIG = {
         "simple_table_code": "camera_result_simple",
         "timeout": 200,
         # 测试模式：使用 FastAPI 本地服务替代 iS3 上报
-        "is_test": False,
+        "is_test": True,
         "fastapi_url": "http://localhost:8000"
     },
 
@@ -327,7 +327,7 @@ class IS3Client:
         try:
             # 选择上传模式
             if self.is_test:
-                return self._upload_to_fastapi(detail_row, simple_row, region_id)
+                return self._upload_to_fastapi(detail_row, simple_row, image_path, region_id)
             else:
                 # iS3 模式：上传文件（使用带前缀的临时文件）
                 upload_path = temp_image_path if temp_image_path else image_path
@@ -351,8 +351,8 @@ class IS3Client:
                 except Exception as e:
                     logger.warning(f"删除临时文件失败: {e}")
 
-    def _upload_to_fastapi(self, detail_row: dict, simple_row: dict, region_id: str = None) -> bool:
-        """上传到 FastAPI 本地服务（测试模式）"""
+    def _upload_to_fastapi(self, detail_row: dict, simple_row: dict, image_path: str = None, region_id: str = None) -> bool:
+        """上传到 FastAPI 本地服务（测试模式），含图片上传"""
         import requests
 
         try:
@@ -370,12 +370,26 @@ class IS3Client:
             detail_ok = detail_resp.status_code == 200
             simple_ok = simple_resp.status_code == 200
 
-            if detail_ok and simple_ok:
+            # 上传标注图片
+            image_ok = True
+            if image_path and os.path.exists(image_path):
+                image_url = f"{self.fastapi_url}/api/upload/image"
+                ts_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{ts_prefix}_{region_id or 'default'}_{Path(image_path).name}"
+                with open(image_path, "rb") as f:
+                    image_resp = requests.post(image_url, files={"file": (filename, f, "image/jpeg")}, timeout=30)
+                image_ok = image_resp.status_code == 200
+                if image_ok:
+                    logger.debug(f"FastAPI 图片上传成功{region_suffix}")
+                else:
+                    logger.warning(f"FastAPI 图片上传失败{region_suffix}: {image_resp.status_code}")
+
+            if detail_ok and simple_ok and image_ok:
                 logger.debug(f"FastAPI 上传成功{region_suffix}")
             else:
-                logger.warning(f"FastAPI 上传部分失败{region_suffix}: detail={detail_ok}, simple={simple_ok}")
+                logger.warning(f"FastAPI 上传部分失败{region_suffix}: detail={detail_ok}, simple={simple_ok}, image={image_ok}")
 
-            return detail_ok and simple_ok
+            return detail_ok and simple_ok and image_ok
 
         except requests.exceptions.ConnectionError:
             logger.warning(f"FastAPI 服务连接失败 ({self.fastapi_url})")
@@ -602,21 +616,26 @@ def detect_multi_regions(model, image_crops: List[Dict], regions_config: List[Di
         max_box_area = detection_params.get("max_box_area", 6000)
         min_box_area = detection_params.get("min_box_area", 150)
 
-        # 同时检测 blue_bike 和 yellow_bike
+        # 每个区域检测 bike + blue_bike + yellow_bike
         all_detections = []
+        bike_detections = []  # 单独保存 bike 检测结果，用于生成标注图
         counts = {"blue_bike": 0, "yellow_bike": 0}
 
-        for bike_type in ["blue_bike", "yellow_bike"]:
+        for bike_type in ["bike", "blue_bike", "yellow_bike"]:
             detections = detect_objects(
                 model, cropped_image, bike_type,
                 max_box_area, min_box_area, bike_type
             )
+            if bike_type == "bike":
+                bike_detections = detections
+            else:
+                counts[bike_type] = len(detections)
             all_detections.extend(detections)
-            counts[bike_type] = len(detections)
 
         results[region_id] = {
             "detections": all_detections,
-            "counts": counts
+            "counts": counts,
+            "bike_detections": bike_detections,
         }
 
     return results
@@ -710,12 +729,13 @@ def save_multi_region_result(frame_np: np.ndarray, image_crops: List[Dict],
         # 获取检测结果（新格式：包含detections和counts）
         region_result_data = detection_results.get(region_id, {"detections": [], "counts": {"blue_bike": 0, "yellow_bike": 0}})
         detections = region_result_data.get("detections", [])
+        bike_detections = region_result_data.get("bike_detections", detections)
         counts = region_result_data.get("counts", {"blue_bike": 0, "yellow_bike": 0})
         total_detections += len(detections)
 
-        # 创建带标注的图像
-        if detections:
-            annotated_rgb = annotate_detections(cropped_image, detections)
+        # 只用 bike 检测结果生成标注图像（用于上传）
+        if bike_detections:
+            annotated_rgb = annotate_detections(cropped_image, bike_detections)
         else:
             annotated_rgb = cropped_image
 

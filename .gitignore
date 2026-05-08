@@ -6,3 +6,8 @@ dist/
 build/
 weight/
 .claude
+*.json
+*.png
+*.mp4
+*.jpg
+mediamtx_v1.17.1_windows_amd64/
