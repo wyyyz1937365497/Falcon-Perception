@@ -1,13 +1,13 @@
 """
-Falcon-Perception 适配模块
-封装 Falcon-Perception 模型的加载和推理。
+Falcon-Perception 模型适配模块。
+
+封装模型加载 + 推理，供 falcon_inference_server.py 使用。
 """
 
-import cv2
 import numpy as np
 import torch
 from PIL import Image
-from typing import Dict, List, Optional, Tuple
+from typing import List
 
 from falcon_perception import (
     PERCEPTION_MODEL_ID,
@@ -89,13 +89,11 @@ class FalconPerceptionModel:
         print(f"  Warmup 完成 ({timer.elapsed:.1f}s)")
 
     @torch.inference_mode()
-    def detect(self, image_pil: Image.Image, query: str, task: str = "detection") -> List[Dict]:
+    def generate(self, image_pil: Image.Image, query: str, task: str = "detection") -> List:
         """
-        运行检测/分割推理。
+        运行推理，返回 sequences 列表。
 
-        Returns:
-            pair_bbox_entries 格式: [{"x", "y", "h", "w"}, ...]
-            x, y 为归一化中心坐标，h, w 为归一化尺寸 (0-1)
+        调用方自行从 seq.output_aux 提取 bboxes_raw / masks_rle。
         """
         prompt = build_prompt_for_task(query, task)
         sampling_params = SamplingParams(stop_token_ids=self.stop_token_ids)
@@ -106,150 +104,4 @@ class FalconPerceptionModel:
         )]
         self.engine.generate(sequences, sampling_params=sampling_params, use_tqdm=False, print_stats=False)
 
-        seq = sequences[0]
-        return pair_bbox_entries(seq.output_aux.bboxes_raw)
-
-
-def detect_objects(
-    fp_model: FalconPerceptionModel,
-    image_np: np.ndarray,
-    caption: str,
-    max_box_area: int = 6000,
-    min_box_area: int = 150,
-    object_type: str = "bike",
-) -> List[Dict]:
-    """
-    使用 Falcon-Perception 检测图像中的物体。
-
-    Args:
-        fp_model: FalconPerceptionModel 实例
-        image_np: BGR 格式图像
-        caption: 检测提示词 (如 "blue_bike")
-        max_box_area: 最大框面积过滤 (像素), 0=不过滤
-        min_box_area: 最小框面积过滤 (像素), 0=不过滤
-        object_type: 物体类型标记
-
-    Returns:
-        检测结果列表
-    """
-    image_pil = Image.fromarray(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)).convert("RGB")
-    img_h, img_w = image_np.shape[:2]
-
-    bboxes = fp_model.detect(image_pil, caption, task="detection")
-
-    filtered_results = []
-    for entry in bboxes:
-        cx, cy = entry["x"], entry["y"]
-        bw, bh = entry["w"], entry["h"]
-
-        box_w = bw * img_w
-        box_h = bh * img_h
-        box_area = box_w * box_h
-
-        if max_box_area > 0 and box_area > max_box_area:
-            continue
-        if min_box_area > 0 and box_area < min_box_area:
-            continue
-
-        filtered_results.append({
-            "label": caption,
-            "object_type": object_type,
-            "center_x": float(cx),
-            "center_y": float(cy),
-            "width": float(box_w),
-            "height": float(box_h),
-            "area": float(box_area),
-            "x1": float(cx * img_w - box_w / 2),
-            "y1": float(cy * img_h - box_h / 2),
-            "x2": float(cx * img_w + box_w / 2),
-            "y2": float(cy * img_h + box_h / 2),
-        })
-
-    return filtered_results
-
-
-def detect_trees(
-    fp_model: FalconPerceptionModel,
-    image: np.ndarray,
-    caption: str = "tree",
-    min_box_area: int = 500,
-    max_box_area: int = 100000,
-    min_box_aspect: float = 0.3,
-    max_box_aspect: float = 3.0,
-    nms_threshold: float = 0.3,
-) -> Tuple[List[Dict], np.ndarray]:
-    """
-    使用 Falcon-Perception 检测图像中的树木。
-
-    Returns:
-        (树木列表, 可视化图像)
-        树木格式: [{"bbox": [x1,y1,x2,y2], "center": (cx,cy)}, ...]
-    """
-    if len(image.shape) == 3:
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    else:
-        image_rgb = image
-    image_pil = Image.fromarray(image_rgb).convert("RGB")
-    img_h, img_w = image.shape[:2]
-
-    bboxes = fp_model.detect(image_pil, caption, task="detection")
-
-    raw_trees = []
-    for entry in bboxes:
-        cx, cy = entry["x"], entry["y"]
-        bw, bh = entry["w"], entry["h"]
-
-        bw_px = bw * img_w
-        bh_px = bh * img_h
-        box_area = bw_px * bh_px
-        aspect_ratio = bw_px / bh_px if bh_px > 0 else 0
-
-        if box_area < min_box_area or box_area > max_box_area:
-            continue
-        if aspect_ratio < min_box_aspect or aspect_ratio > max_box_aspect:
-            continue
-
-        cx_px = cx * img_w
-        cy_px = cy * img_h
-        x1 = max(0, int(cx_px - bw_px / 2))
-        y1 = max(0, int(cy_px - bh_px / 2))
-        x2 = min(img_w, int(cx_px + bw_px / 2))
-        y2 = min(img_h, int(cy_px + bh_px / 2))
-
-        raw_trees.append({
-            "bbox": [x1, y1, x2, y2],
-            "center": (int(cx_px), int(cy_px)),
-        })
-
-    from image_registration import apply_nms_to_trees
-    trees = apply_nms_to_trees(raw_trees, nms_threshold)
-
-    vis_image = image.copy()
-    for tree in trees:
-        x1, y1, x2, y2 = tree["bbox"]
-        cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cx_t, cy_t = tree["center"]
-        cv2.circle(vis_image, (cx_t, cy_t), 3, (0, 255, 0), -1)
-
-    return trees, vis_image
-
-
-def annotate_detections(image_np: np.ndarray, detections: List[Dict]) -> np.ndarray:
-    """在图像上绘制检测框和标签。"""
-    annotated = image_np.copy()
-    for det in detections:
-        x1 = int(det.get("x1", 0))
-        y1 = int(det.get("y1", 0))
-        x2 = int(det.get("x2", 0))
-        y2 = int(det.get("y2", 0))
-        label = det.get("label", "")
-
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-        font_scale = 0.5
-        thickness = 1
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-        cv2.rectangle(annotated, (x1, y1 - th - 4), (x1 + tw, y1), (0, 255, 0), -1)
-        cv2.putText(annotated, label, (x1, y1 - 2), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness)
-
-    return annotated
+        return sequences
