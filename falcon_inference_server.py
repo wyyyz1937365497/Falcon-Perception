@@ -116,11 +116,10 @@ def health():
 
 @app.post("/segment", response_model=SegmentResponse)
 def segment(req: SegmentRequest):
-    """Run Falcon detection on the provided image.
+    """Run Falcon detection/segmentation on the provided image.
 
-    直接调用 model.detect() — 与 rtsp_detection_service.py 完全相同的路径。
-    task 固定为 "detection"（segmentation 在 RTX 2080Ti 上会触发
-    torch.compile 重新编译导致超时）。
+    根据 ``req.task`` 执行 detection 或 segmentation。
+    segmentation 返回 mask_bbox + mask_area_ratio；detection 仅返回 bbox。
     """
     if _model is None:
         raise HTTPException(503, "Model not loaded yet")
