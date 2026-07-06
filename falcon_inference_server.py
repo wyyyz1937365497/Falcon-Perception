@@ -152,7 +152,7 @@ def segment(req: SegmentRequest):
                 counts = counts.encode("utf-8")
 
             mask_arr = mask_utils.decode({"counts": counts, "size": [mh, mw]})
-            mask_area = int(np.asarray(mask_arr).sum())
+            mask_area = int(mask_arr.sum())
             total = mh * mw
 
             # _mask_to_bbox_xywh returns (xy_dict, hw_dict) — merge into one
