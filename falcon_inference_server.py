@@ -53,9 +53,11 @@ class SegmentRequest(BaseModel):
 
 
 class DetectionEntry(BaseModel):
-    bbox: dict                       # {"x","y","w","h"} normalized [0,1]
-    mask_bbox: Optional[dict] = None  # not available with detection-only
+    bbox: dict                       # {"x","y","w","h} center-based, normalized [0,1]
+    mask_bbox: Optional[dict] = None
     mask_area_ratio: Optional[float] = None
+    mask_rle: Optional[str] = None      # base64-encoded COCO RLE counts
+    mask_size: Optional[list] = None     # [H, W] of the mask
 
 
 class SegmentResponse(BaseModel):
@@ -159,6 +161,8 @@ def segment(req: SegmentRequest):
             xy_dict, hw_dict = _mask_to_bbox_xywh(mask_arr, mw, mh)
             entry.mask_bbox = {**xy_dict, **hw_dict}
             entry.mask_area_ratio = round(mask_area / total, 4) if total > 0 else 0.0
+            entry.mask_rle = base64.b64encode(counts).decode("ascii")
+            entry.mask_size = [mh, mw]
 
         entries.append(entry)
 
