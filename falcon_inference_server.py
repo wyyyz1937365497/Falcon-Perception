@@ -8,7 +8,7 @@ Usage::
 
     conda activate transformerv
     cd G:\\TJ\\BIM\\Falcon-Perception
-    python falcon_inference_server.py --port 8390
+    python falcon_inference_server.py --port 18390
 
 Endpoints:
     GET  /health       — liveness check
@@ -182,7 +182,7 @@ if __name__ == "__main__":
                         default=str(_THIS_DIR / "weight" / "Falcon-Perception"),
                         help="local HF model directory (overrides HF download)")
     parser.add_argument("--host", type=str, default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8390)
+    parser.add_argument("--port", type=int, default=18390)
     args = parser.parse_args()
 
     if args.model_dir:
